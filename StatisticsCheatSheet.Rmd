@@ -1,0 +1,408 @@
+---
+title: "CheatSheet R Notebook"
+output:
+  pdf_document: default
+---
+
+```{r message=FALSE, warning=FALSE}
+library(car)
+library(gmodels)
+library(Stat2Data)
+library(tidyverse)
+library(corrplot)
+library(leaps)
+```
+
+####################################################################
+# Creating linear models
+####################################################################
+
+```{r}
+# Create a linear model to predict distance traveled by speed of car
+model <- lm(dist~speed, data=cars)
+```
+
+####################################################################
+# Conditions for linear Model
+####################################################################
+
+Check condition one below. By looking at the raw data plot, the data seems relatively linear however it may be slightly curved meaning a quadratic model may fit the data better. The residuals vs fitted plot agrees with us where we see the red best fit line is curved
+
+Check condition 2 by checking for zero mean of errors and thus independence of errors across all predictors. We see from the residuals vs fitted that the errors tend to stay relatively centered around zero across all fitted values, however on the tails we the red line (mean) does go above zero and in the center the red line goes below zero, indicating this still probably should be a quadratic model.
+
+Condition 3, check for constant variance. Look in the raw data as well as the fitted vs residuals we see that there is not constant variance. The data seems to spread towards the right and cinch towards the left tail.
+
+Condition 4, look in the residuals vs fitted we are also looking for independence of errors. For the most part this seems to hold true. However, it does seem that more positive residuals may favor the left tail end of this distribution.
+
+Finally, check condition 5 through checking the qq residuals plot, we can look for normality of residuals. The data is right skewed. This means the data is not perfectly meeting this condition. We should probably transform the data or fit a quadratic model.
+
+```{r}
+# Condition 1 : Check for linearity
+# AND
+# Condition 2: Zero mean
+# AND
+# Condition 3: Constant variance
+# And
+# Condition 4: Independence of errors
+plot(dist ~ speed, data = cars)
+plot(model, 1:1)
+
+# Condition 5 : Normality of residuals
+plot(model, 2:2)
+```
+
+####################################################################
+# Tests for influencers / outliers in linear Model and handling them
+####################################################################
+
+```{r}
+# Checks the standard deviations away from the mean (predicted value from model) that each residual is
+rstandard(model)
+# Checks the standard deviation away from the mean (predicted value from model) of each residual on a model trained without that residual data point
+rstudent(model)
+```
+
+```{r}
+# Gets the top 5 residuals
+n = 5
+greates_abs_resids <- order(abs(model$residuals), decreasing = TRUE)[1:n]
+model$residuals[greates_abs_resids]
+# Dataset without the biggest n residuals, useful for removing large residuals if deemed necesarry
+cars_no_resid <- cars[-greates_abs_resids,] # dont forget this comma
+```
+
+```{r}
+# Calculate the leverage of each point in the dataframe and add to column in dataframe
+cars$Leverage <- hatvalues(model)
+# Calculates the number of observations and removes the data points with leverages that are over 2*(2/n) away
+num_obs <- dim(cars)[1]
+high_leverage_indices <- which(cars$Leverage > 2*(2/num_obs))
+cars_no_high_lev <- cars[-high_leverage_indices,] # dont forget this comma
+dim(cars_no_high_lev)
+```
+
+####################################################################  
+# Confidence intervals 
+####################################################################
+
+```{r}
+################# Confidence intervals ##################
+# The confint of the model estimates 
+confint(model, level=.95)
+# How to interpret
+# This confidence interval tells us that when we regenerate samples, with replacement, from this data, we will create a confidence interval with the data field speed and dist. 95% of all calculated confidence intervals will contain the true population slope. Therefore, 95% of confidence intervals will present a sample under which the lines of best fit on those generated samples have intercepts between -31.167850 and -3.990340. Furthermore, 95% of of confidence intervals will present a sample under which such  samples have slopes between 3.096964 and 4.767853.
+
+# Predicts the confidence and prediction interval of the distance traveled of a car with speed 10
+car_40dist <- data.frame(speed=10)
+predict.lm(model, car_40dist, interval='confidence', level=.95)
+predict.lm(model, car_40dist, interval='prediction', level=.95)
+```
+
+####################################################################  
+# Correlation tests (cor)
+####################################################################
+
+```{r}
+################ Correlation tests #############
+cor.test(cars$dist, cars$speed)
+```
+
+```{r}
+data("Houses")
+################  Test for collinearity. Look for high correlation (R in this case) between predictors
+round(cor(Houses), 2)
+
+# Check the vif of your predictors. Vif makes a linear model with each predictor as its own response and all other predictors as the new predictors. Then it takes the R^2 of this regression and calculates vif (1/(1-R^2))
+HouseModel <- lm(Price  ~Size + Lot, data = Houses)
+vif(HouseModel)
+# If vif > 5, predictor should be evaluated, if vif > 10, predictor is extremely collinear and action should be taken 
+```
+
+####################################################################  
+# Model selection methods
+####################################################################
+
+```{r message=FALSE, warning=FALSE}
+BodyFat <- read_csv("https://raw.githubusercontent.com/JA-McLean/STOR455/master/data/BodyFat.csv")
+source("https://raw.githubusercontent.com/JA-McLean/STOR455/master/scripts/ShowSubsets.R")
+```
+
+```{r}
+######## Model Selection methods !!! ###########
+
+####### all subsets #########################
+library(leaps)
+#Ask for the models of each size (up to 8 predictors)
+all <- regsubsets(Bodyfat~., data = BodyFat, nvmax=9)
+#show the predictors in “best” models of various sizes
+print.data.frame(ShowSubsets(all))
+```
+
+```{r}
+################ Backwards Elimination / Selection ###################
+
+# Fit the full model
+Full <- lm(Bodyfat~., data = BodyFat)
+# Find the MSE for the full model
+MSE <- (summary(Full)$sigma)^2
+# Backward: use the step( ) function starting with the full model
+step(Full,scale = MSE, trace=FALSE)
+#R uses Cp (AIC) to pick next model
+```
+
+```{r}
+################# Forward Selection #####################
+
+# Fit the full model
+Full <- lm(Bodyfat~., data = BodyFat)
+# Find the MSE for the full model
+MSE <-(summary(Full)$sigma)^2
+# Start with a model with NO predictors
+none <- lm(Bodyfat~1, data = BodyFat)
+#Specify the direction
+step(none, scope = list(upper=Full), scale=MSE, direction="forward", trace=FALSE)
+```
+
+```{r}
+####################### Stepwise Selection ######################
+
+# Fit the full model
+Full <- lm(Bodyfat~., data = BodyFat)
+# Find the MSE for the full model
+MSE <- (summary(Full)$sigma)^2
+# Start with a model with NO predictors
+none <- lm(Bodyfat~1, data=BodyFat)
+# Don’t specify a direction
+step(none,scope=list(upper=Full),scale=MSE, trace=FALSE)
+```
+
+####################################################################  
+# Difference in means tests 
+####################################################################
+
+```{r message=FALSE, warning=FALSE}
+############### T test for difference in means !
+lego <- read_csv("https://raw.githubusercontent.com/JA-McLean/STOR455/master/data/lego.csv")
+lego2 <- filter(lego, Theme == 'Star Wars' | Theme == 'Friends')
+
+# tests for a difference in the mean price of a lego set based on its theme
+t.test(Amazon_Price~Theme, var.equal=TRUE, data=lego2)
+```
+
+####################################################################  
+# Nested f tests
+####################################################################
+
+```{r}
+######################## Nested f test ############################
+# Create a full model
+Modlego_FULL <- lm(Amazon_Price ~ Pieces + Theme + Pieces*Theme, data=lego2)
+# Create a reducte model (is a subset of the predictors of the original)
+Modlego_REDUCED <- lm(Amazon_Price ~ Pieces + Theme, data=lego2)
+# Check for significant p-value in the anova meaning that the extra predictors explain a significant amount of variability
+anova(Modlego_REDUCED, Modlego_FULL)
+```
+
+####################################################################  
+# Creating polynomial / quadratic models
+####################################################################
+
+```{r message=FALSE, warning=FALSE}
+############### Creating Polynomial / Quadratic Models (squared etc.)
+StateSAT <- read_csv("https://raw.githubusercontent.com/JA-McLean/STOR455/master/data/StateSAT.csv")
+
+# Method 1
+StateSAT$TakersSq <- StateSAT$Takers^2
+modSATquad1 <- lm(SAT~Takers+TakersSq,data=StateSAT)
+
+# Method 2
+modSATquad2=lm(SAT~Takers+I(Takers^2),data=StateSAT)
+               
+# Method 3
+modSATquad3=lm(SAT~poly(Takers,degree=2,raw=TRUE), data=StateSAT)
+```
+
+```{r}
+# Plotting quadratic models
+
+plot(SAT~Takers,main="Quadratic Model",data=StateSAT)
+B0_modSATquad2 <- summary(modSATquad2)$coef[1,1]
+B1_modSATquad2 <- summary(modSATquad2)$coef[2,1]
+B2_modSATquad2 <- summary(modSATquad2)$coef[3,1]
+curve(B0_modSATquad2 + B1_modSATquad2*x + B2_modSATquad2*x^2, add=TRUE)
+```
+
+####################################################################  
+# Cross validation with linear models
+####################################################################
+
+```{r}
+# Find dimensions
+dim(cars)
+```
+
+```{r}
+# Create holdout and training data set
+set.seed(12345)
+rows <- sample(nrow(cars))
+Cars_shuffled <- cars [rows,]
+# Cars dataset has 50 observations, so we will make the train have 40 and the holdout have the remaining 10
+CarsTrain <- Cars_shuffled [1:40,]
+CarsHoldout <- Cars_shuffled [41:50,]
+
+
+# Train model on training
+CarsTrainMod <- lm(dist~speed, data=CarsTrain)
+# Find residuals with holdout
+cars_predict <- predict(CarsTrainMod,newdata=CarsHoldout)
+cars_predict
+# Calculate the residuals on the holdout data and the mean and sd of the residuals
+Holdoutresid <- CarsHoldout$dist - cars_predict
+mean(Holdoutresid)
+sd(Holdoutresid)
+
+
+# calculate the correlation of the holdout values and the predicted values to get the R of the relationship
+# This is known as the cross validation correlation
+crosscor <- cor(CarsHoldout$dist,Holdoutresid)
+# Calcualte shrinkage by subtracting the R^2 on holdout data from the original R^2
+shrinkage <- summary(CarsTrainMod)$r.squared - crosscor^2
+```
+
+####################################################################  
+# Logistic regression
+####################################################################
+
+```{r}
+################# Logistic regression #####################
+library(titanic)
+data("titanic_train")
+
+## Create logistic regression
+Titanic_prob_mod <- glm(Survived ~ Fare, family = binomial, data = titanic_train)
+
+# Plot it
+plot(jitter(Survived, amount = 0.1) ~ Fare, ylim = c(-0.25, 1.25), data = titanic_train)
+B0 <- summary(Titanic_prob_mod )$coef[1]
+B1 <- summary(Titanic_prob_mod )$coef[2]
+curve(exp(B0+B1*x)/(1+exp(B0+B1*x)),add=TRUE, col="red")
+
+# View summary
+summary(Titanic_prob_mod)
+
+# Predict Probability of survival for a passenger who paid a fare of 100
+passenger <- data.frame(Fare=100)
+predict(Titanic_prob_mod, passenger, type = "response")
+
+# Confidence interval for odds ratio of model (for each increase in fare there is a ___ increase in the odds of survival)
+exp(confint.default(Titanic_prob_mod))
+
+# Calculate the g statistic (basically log reg version of R^2) 
+(summary(Titanic_prob_mod)$null.deviance - summary(Titanic_prob_mod)$deviance)
+
+# The g statistic is also shown in the "deviance" column of the anova output and we can see a p value for it here
+# If the p calue is significant we would reject the null hypothesis that Bi = 0 and accept Bi != 0
+anova(Titanic_prob_mod, test="Chisq")
+
+# emplogit plot shows us the log odds for n slices of the predictor
+# Check different slice amounts to check linearity of log odds
+for(j in 5:11){emplogitplot1(Survived ~ Fare, data=titanic_train, ngroups=j, main=j)}
+
+### Drop in deviance test for logistic regression
+# fit reduced and full model
+Titanic_mod_reduced <- glm(Survived ~ Fare, family = binomial, data = titanic_train)
+Titanic_mod_full <- glm(Survived ~ Fare + Age, family = binomial, data = titanic_train)
+
+# Conduct the test, this outputs the p value of whether the full model explains a significant amount of deviance over the reduced (null hyp would be that B2 = 0, alt hyp is that B2 != 0)
+1 - pchisq(summary(Titanic_mod_reduced)$deviance - summary(Titanic_mod_full)$deviance, 2)
+```
+
+####################################################################  
+# One way anova - difference in group means test
+####################################################################
+
+```{r message=FALSE, warning=FALSE}
+################## One way anova (difference in means test) ##################
+Exams4 <- read_csv("https://raw.githubusercontent.com/JA-McLean/STOR455/master/data/Exams4.csv")
+
+# Does there appear to be a difference in mean or sd ?
+tapply(Exams4$Grade,Exams4$Student,mean)
+round(tapply(Exams4$Grade,Exams4$Student,sd), 2)
+
+# create the model to predict exam grade by student
+# This model will just give the mean of each grade for each exam
+# If the p value is less than our alpha we can deduce there is a difference in means
+amodG <- aov(Grade~factor(Student),data=Exams4)
+summary(amodG)
+
+# Using tukey HSD we can see where the actual pairwise difference in means lies, check for pairwise p-values <.05
+TukeyHSD(amodG)
+```
+
+####################################################################  
+# Two way anova - difference in multiple group means and interactions test
+####################################################################
+
+```{r}
+################## Two way anova (difference in means of multiple groups) ######################
+amodC <- aov(Grade~factor(Exam)+Student,data=Exams4)
+# We can deduce: Evidence of a difference in means between exams.
+#                Evidence of a difference in means between students.
+summary(amodC)
+
+# An interaction effect occurs when a significant difference is present at a specific combination of factors.
+interaction.plot(Exams4$Exam, Exams4$Student, Exams4$Grade)
+```
+
+####################################################################  
+# Ancova - difference in group means after accounting for variability explained by quantitative predictors
+####################################################################
+
+```{r}
+###################### ANCOVA - Combining categorical and quantitative predictors in anova ################
+Diet <- read_csv("https://raw.githubusercontent.com/JA-McLean/STOR455/master/data/Diet.csv", show_col_types = FALSE)
+
+# Exe:
+# After accounting for Age and Height, does the type of the diet significantly predict the weight loss?
+Diet$weightchange <- Diet$weight6weeks - Diet$Preweight
+Diet_mod2 <- lm(weightchange ~ Age + Height + factor(Diet), data=Diet)
+# Check for significant p value in Diet which is after Age and Height
+anova(Diet_mod2)
+```
+
+####################################################################  
+# Levene's test - difference in group standard deviations test
+####################################################################
+
+```{r}
+################### Levenes test for equality of variances #################
+
+# Non significant p value means that there is no evidence the standard deviations in grade are different by student
+leveneTest(Exams4$Grade, factor(Exams4$Student))
+```
+
+####################################################################  
+# Contrasts - difference in combined group means tests
+####################################################################
+
+```{r}
+################ Contrasts - difference in means of groups of predictors ##############
+library(gmodels)
+data("FruitFlies")
+
+# Tapply to see the order of groups for the contrast
+tapply(FruitFlies$Longevity,FruitFlies$Treatment, mean)
+
+# Create a model with the value you want to see differenece in means of and the group
+Fly.mod <- aov(FruitFlies$Longevity~FruitFlies$Treatment)
+
+# Perform the contrast. Here we are comparing the idfference in means of group 1 and 3 with group 2 and 4
+# The estimate is the difference in means
+fit.contrast(Fly.mod, FruitFlies$Treatment, c(0.5, -0.5, 0.5, -0.5, 0), conf.int=.95)
+```
+
+
+
+
+
+
